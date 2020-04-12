@@ -62,6 +62,6 @@ if __name__ == '__main__':
          generate_obj_from_ply(i+"/google_512k/nontextured.ply")
          print("finish", i)
     # The operation for the multi core
-    cores = multiprocessing.cpu_count()
+    cores = multiprocessing.cpu_count() #// 2
     pool = multiprocessing.Pool(processes=cores)
     pool.map(do_job_convert_obj_to_sdf, range(object_numbers))

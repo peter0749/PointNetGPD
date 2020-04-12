@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
-# Author     : Hongzhuo Liang 
-# E-mail     : liang@informatik.uni-hamburg.de
-# Description: 
-# Date       : 30/05/2018 9:57 AM 
-# File Name  : read_grasps_from_file.py
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
 import os
 import sys
 import re
@@ -17,12 +17,18 @@ from dexnet.grasping import RobotGripper
 from autolab_core import YamlConfig
 try:
     from mayavi import mlab
+    mlab.init_notebook('x3d', 800, 800)
 except ImportError:
     print("can not import mayavi")
     mlab = None
 from dexnet.grasping import GpgGraspSampler  # temporary way for show 3D gripper using mayavi
 import pcl
 import glob
+from IPython.display import display
+
+
+# In[2]:
+
 
 # global configurations:
 home_dir = os.environ['HOME']
@@ -30,8 +36,8 @@ yaml_config = YamlConfig(home_dir + "/code/grasp-pointnet/dex-net/test/config.ya
 gripper_name = 'robotiq_85'
 gripper = RobotGripper.load(gripper_name, home_dir + "/code/grasp-pointnet/dex-net/data/grippers")
 ags = GpgGraspSampler(gripper, yaml_config)
-save_fig = True  # save fig as png file
-show_fig = False  # show the mayavi figure
+save_fig = False  # save fig as png file
+show_fig = True  # show the mayavi figure
 generate_new_file = False  # whether generate new file for collision free grasps
 check_pcd_grasp_points = False
 
@@ -165,11 +171,13 @@ def show_selected_grasps_with_color(m, ply_name_, title, obj_):
     m_bad = m[m[:, 1] >= 1.8]
     m_bad = m_bad[np.random.choice(len(m_bad), size=25, replace=True)]
     collision_grasp_num = 0
+    bg_obj = None
+    
 
     if save_fig or show_fig:
         # fig 1: good grasps
         mlab.figure(bgcolor=(1, 1, 1), fgcolor=(0.7, 0.7, 0.7), size=(1000, 1000))
-        mlab.pipeline.surface(mlab.pipeline.open(ply_name_))
+        gg = mlab.pipeline.surface(mlab.pipeline.open(ply_name_))
         for a in m_good:
             # display_gripper_on_object(obj, a[0])  # real gripper
             collision_free = display_grasps(a[0], obj_, color='d')  # simulated gripper
@@ -184,7 +192,7 @@ def show_selected_grasps_with_color(m, ply_name_, title, obj_):
 
         # fig 2: bad grasps
         mlab.figure(bgcolor=(1, 1, 1), fgcolor=(0.7, 0.7, 0.7), size=(1000, 1000))
-        mlab.pipeline.surface(mlab.pipeline.open(ply_name_))
+        bg = mlab.pipeline.surface(mlab.pipeline.open(ply_name_))
 
         for a in m_bad:
             # display_gripper_on_object(obj, a[0])  # real gripper
@@ -211,7 +219,8 @@ def show_selected_grasps_with_color(m, ply_name_, title, obj_):
         collision_grasp_num = str(collision_grasp_num)
         collision_grasp_num = (4-len(collision_grasp_num))*" " + collision_grasp_num
         print("collision_grasp_num =", collision_grasp_num, "| object name:", title)
-        return ind_good_grasp_
+        return ind_good_grasp_, gg, bg
+    return gg, bg
 
 
 def get_grasp_points_num(m, obj_):
@@ -240,47 +249,19 @@ def get_grasp_points_num(m, obj_):
 
 
 if __name__ == '__main__':
-    name_to_open = []
-    if len(sys.argv) > 1:
-        name_to_open.append(str(sys.argv[1]))
-    else:
-        name_to_open = "all"
+    name_to_open = '006_mustard_bottle'
+    grasps_with_score, obj, ply_name, obj_name = open_pickle_and_obj(name_to_open)
+    assert(len(grasps_with_score) > 0)
+    with_score = isinstance(grasps_with_score[0], tuple) or isinstance(grasps_with_score[0], list)
+    if with_score:
+        grasps_with_score = np.array(grasps_with_score)
+        gg, bg = show_selected_grasps_with_color(grasps_with_score, ply_name, obj_name, obj)
+        display(gg)
+        display(bg)
 
-    if name_to_open != "all":  # not only show one object
-        for i in range(len(name_to_open)):
-            grasps_with_score, obj, ply_name, obj_name = open_pickle_and_obj(name_to_open[i])
-            assert(len(grasps_with_score) > 0)
-            with_score = isinstance(grasps_with_score[0], tuple) or isinstance(grasps_with_score[0], list)
-            if with_score:
-                grasps_with_score = np.array(grasps_with_score)
-                show_selected_grasps_with_color(grasps_with_score, ply_name, obj_name, obj)
 
-    elif show_fig or save_fig or generate_new_file:  # show all objects in directory
-        pickle_names = get_pickle_file_name(home_dir + "/code/grasp-pointnet/dex-net/apps/generated_grasps")
-        pickle_names.sort()
-        for i in range(len(pickle_names)):
-            grasps_with_score, obj, ply_name, obj_name = open_pickle_and_obj(pickle_names[i])
-            assert (len(grasps_with_score) > 0)
-            with_score = isinstance(grasps_with_score[0], tuple) or isinstance(grasps_with_score[0], list)
-            if with_score:
-                grasps_with_score = np.array(grasps_with_score)
-                ind_good_grasp = show_selected_grasps_with_color(grasps_with_score, ply_name, obj_name, obj)
-                if not (show_fig and save_fig) and generate_new_file:
-                    good_grasp_with_score = grasps_with_score[ind_good_grasp]
-                    old_npy = np.load(pickle_names[i][:-6]+"npy")
-                    new_npy = old_npy[ind_good_grasp]
-                    num = str(len(ind_good_grasp))
-                    np.save("./generated_grasps/new0704/0704_"+obj_name+"_"+num+".npy", new_npy)
-                    with open("./generated_grasps/new0704/0704_"+obj_name+"_"+num+".pickle", 'wb') as f:
-                        pickle.dump(good_grasp_with_score, f)
-    elif check_pcd_grasp_points:
-        pickle_names = get_pickle_file_name(home_dir + "/code/grasp-pointnet/dex-net/apps/generated_grasps/new0704")
-        pickle_names.sort()
-        for i in range(len(pickle_names)):
-            grasps_with_score, obj, ply_name, obj_name = open_pickle_and_obj(pickle_names[i])
-            grasps_with_score = np.array(grasps_with_score)
-            for j in range(len(obj)):
-                point_clouds_np = pcl.load(obj[j]).to_array()
-                has_points, ind_points = get_grasp_points_num(grasps_with_score, point_clouds_np)
-                np_name = "./generated_grasps/point_data/"+obj_name+"_"+obj[j].split("/")[-1][:-3]+"npy"
-                np.save(np_name, ind_points)
+# In[ ]:
+
+
+
+

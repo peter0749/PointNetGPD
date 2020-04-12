@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Author     : Hongzhuo Liang 
+# Author     : Hongzhuo Liang
 # E-mail     : liang@informatik.uni-hamburg.de
-# Description: 
-# Date       : 20/05/2018 2:45 PM 
+# Description:
+# Date       : 20/05/2018 2:45 PM
 # File Name  : generate-dataset-canny.py
 import numpy as np
 import sys
@@ -22,22 +22,18 @@ plt.switch_backend('agg')  # for the convenient of run on remote computer
 
 
 def get_file_name(file_dir_):
-    file_list = []
-    for root, dirs, files in os.walk(file_dir_):
-        if root.count('/') == file_dir_.count('/') + 1:
-            file_list.append(root)
-    file_list.sort()
-    return file_list
-
+    return sorted(next(os.walk(file_dir_))[1])
 
 def do_job(i):
-    object_name = file_list_all[i][len(home_dir) + 35:]
-    good_grasp = multiprocessing.Manager().list()
-    p_set = [multiprocessing.Process(target=worker, args=(i, 100, 20, good_grasp)) for _ in
-             range(50)]  # grasp_amount per friction: 20*40
-    [p.start() for p in p_set]
-    [p.join() for p in p_set]
-    good_grasp = list(good_grasp)
+    object_name = os.path.split(file_list_all[i])[-1]
+    good_grasp = []
+    for ____ in range(7):
+        _good_grasp = multiprocessing.Manager().list()
+        p_set = [multiprocessing.Process(target=worker, args=(i, 100, 20, _good_grasp)) for _ in
+                 range(7)]
+        [p.start() for p in p_set]
+        [p.join() for p in p_set]
+        good_grasp += list(_good_grasp)
 
     good_grasp_file_name = "./generated_grasps/{}_{}_{}".format(filename_prefix, str(object_name), str(len(good_grasp)))
     with open(good_grasp_file_name + '.pickle', 'wb') as f:
@@ -49,12 +45,12 @@ def do_job(i):
         score_friction = grasp[1]
         score_canny = grasp[2]
         tmp.append(np.concatenate([grasp_config, [score_friction, score_canny]]))
-    np.save(good_grasp_file_name + '.npy', np.array(tmp))
+    np.save(good_grasp_file_name + '.npy', np.array(tmp), allow_pickle=True, fix_imports=True)
     print("finished job ", object_name)
 
 
 def worker(i, sample_nums, grasp_amount, good_grasp):
-    object_name = file_list_all[i][len(home_dir) + 35:]
+    object_name = os.path.split(file_list_all[i])[-1]
     print('a worker of task {} start'.format(object_name))
 
     yaml_config = YamlConfig(home_dir + "/code/grasp-pointnet/dex-net/test/config.yaml")
@@ -102,8 +98,9 @@ def worker(i, sample_nums, grasp_amount, good_grasp):
 
     good_count_perfect = np.zeros(len(fc_list))
     count = 0
+    max_attempt_n = 300
     minimum_grasp_per_fc = grasp_amount
-    while np.sum(good_count_perfect < minimum_grasp_per_fc) != 0:
+    while np.sum(good_count_perfect < minimum_grasp_per_fc) != 0 and max_attempt_n>0:
         grasps = ags.generate_grasps(obj, target_num_grasps=sample_nums, grasp_gen_mult=10,
                                      vis=False, random_approach_angle=True)
         count += len(grasps)
@@ -131,6 +128,7 @@ def worker(i, sample_nums, grasp_amount, good_grasp):
                         good_count_perfect[ind_] += 1
                     break
         print('Object:{} GoodGrasp:{}'.format(object_name, good_count_perfect))
+        max_attempt_n -= 1
 
     object_name_len = len(object_name)
     object_name_ = str(object_name) + " " * (25 - object_name_len)
@@ -147,14 +145,18 @@ if __name__ == '__main__':
         filename_prefix = sys.argv[1]
     else:
         filename_prefix = "default"
+    if not os.path.exists('./generated_grasps'):
+        os.makedirs('./generated_grasps')
     home_dir = os.environ['HOME']
     file_dir = home_dir + "/dataset/ycb_meshes_google/objects"
-    file_list_all = get_file_name(file_dir)
+    if len(sys.argv) > 2:
+        file_dir = sys.argv[2]
+    file_list_all = list(map(lambda x : file_dir + '/' + x, get_file_name(file_dir)))
     object_numbers = file_list_all.__len__()
 
     job_list = np.arange(object_numbers)
     job_list = list(job_list)
-    pool_size = 1  # number of jobs did at same time
+    pool_size = 4  # number of jobs did at same time
     assert (pool_size <= len(job_list))
     # Initialize pool
     pool = []

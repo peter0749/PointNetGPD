@@ -48,7 +48,7 @@ class PointGraspDataset(torch.utils.data.Dataset):
                 self.d_pc[k] = [i]
 
         for i in fl_grasp:
-            k = i.split('/')[-1].split('.')[0]
+            k = '_'.join(i.split('/')[-1].split('.')[0].split('_')[1:-1])
             self.d_grasp[k] = i
         object1 = set(self.d_grasp.keys())
         object2 = set(self.transform.keys())
@@ -59,7 +59,7 @@ class PointGraspDataset(torch.utils.data.Dataset):
         center = grasp[0:3]
         axis = grasp[3:6] # binormal
         width = grasp[6]
-        angle = grasp[7]
+        angle = np.radians(grasp[7]) # should be rads. not degrees
 
         axis = axis/np.linalg.norm(axis)
         binormal = axis
@@ -236,45 +236,48 @@ class PointGraspDataset(torch.utils.data.Dataset):
         return output
 
     def __getitem__(self, index):
-        # try:
-        obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
-        obj_grasp = self.object[obj_ind]
-        obj_pc = self.transform[obj_grasp][0]
-        f_grasp = self.d_grasp[obj_grasp]
-        fl_pc = np.array(self.d_pc[obj_pc])
-        fl_pc = fl_pc[np.random.choice(len(fl_pc), size=self.pc_file_used_num)]
+        while True:
+            obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
+            obj_grasp = self.object[obj_ind]
+            obj_pc = self.transform[obj_grasp][0]
+            f_grasp = self.d_grasp[obj_grasp]
+            fl_pc = np.array(self.d_pc[obj_pc])
+            fl_pc = fl_pc[np.random.choice(len(fl_pc), size=self.pc_file_used_num)]
 
-        grasp = np.load(f_grasp)[grasp_ind]
-        pc = np.vstack([np.load(i) for i in fl_pc])
-        pc = pc[np.random.choice(len(pc), size=self.obj_points_num)]
-        t = self.transform[obj_grasp][1]
+            grasp = np.load(f_grasp)
+            grasp = grasp[grasp_ind%len(grasp)]
+            pc = np.vstack([np.load(i) for i in fl_pc])
+            pc = pc[np.random.choice(len(pc), size=self.obj_points_num)]
+            t = self.transform[obj_grasp][1]
 
-        grasp_pc = self.collect_pc(grasp, pc, t)
-        if grasp_pc is None:
-            return None
-        level_score, refine_score = grasp[-2:]
+            grasp_pc = self.collect_pc(grasp, pc, t)
+            if grasp_pc is None:
+                index = np.random.choice(self.__len__())
+                continue
+            level_score, refine_score = grasp[-2:]
 
-        if not self.projection:
-            if len(grasp_pc) > self.grasp_points_num:
-                grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                     replace=False)].T
+            if not self.projection:
+                if len(grasp_pc) > self.grasp_points_num:
+                    grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                         replace=False)].T
+                else:
+                    grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                         replace=True)].T
             else:
-                grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                     replace=True)].T
-        else:
-            grasp_pc = grasp_pc.transpose((2, 1, 0))
-        score = level_score + refine_score*0.01
-        if score >= self.thresh_bad:
-            label = 0
-        elif score <= self.thresh_good:
-            label = 1
-        else:
-            return None
+                grasp_pc = grasp_pc.transpose((2, 1, 0))
+            score = level_score + refine_score*0.01
+            if score >= self.thresh_bad:
+                label = 0
+            elif score <= self.thresh_good:
+                label = 1
+            else:
+                index = np.random.choice(self.__len__())
+                continue
 
-        if self.with_obj:
-            return grasp_pc, label, obj_grasp
-        else:
-            return grasp_pc, label
+            if self.with_obj:
+                return grasp_pc, label, obj_grasp
+            else:
+                return grasp_pc, label
 
     def __len__(self):
         return self.amount
@@ -319,7 +322,7 @@ class PointGraspMultiClassDataset(torch.utils.data.Dataset):
                 self.d_pc[k] = [i]
 
         for i in fl_grasp:
-            k = i.split('/')[-1].split('.')[0]
+            k = '_'.join(i.split('/')[-1].split('.')[0].split('_')[1:-1])
             self.d_grasp[k] = i
         object1 = set(self.d_grasp.keys())
         object2 = set(self.transform.keys())
@@ -330,7 +333,7 @@ class PointGraspMultiClassDataset(torch.utils.data.Dataset):
         center = grasp[0:3]
         axis = grasp[3:6] # binormal
         width = grasp[6]
-        angle = grasp[7]
+        angle = np.radians(grasp[7])
 
         axis = axis/np.linalg.norm(axis)
         binormal = axis
@@ -507,45 +510,47 @@ class PointGraspMultiClassDataset(torch.utils.data.Dataset):
         return output
 
     def __getitem__(self, index):
-        # try:
-        obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
-        obj_grasp = self.object[obj_ind]
-        obj_pc = self.transform[obj_grasp][0]
-        f_grasp = self.d_grasp[obj_grasp]
-        fl_pc = np.array(self.d_pc[obj_pc])
-        fl_pc = fl_pc[np.random.choice(len(fl_pc), size=self.pc_file_used_num)]
+        while True:
+            obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
+            obj_grasp = self.object[obj_ind]
+            obj_pc = self.transform[obj_grasp][0]
+            f_grasp = self.d_grasp[obj_grasp]
+            fl_pc = np.array(self.d_pc[obj_pc])
+            fl_pc = fl_pc[np.random.choice(len(fl_pc), size=self.pc_file_used_num)]
 
-        grasp = np.load(f_grasp)[grasp_ind]
-        pc = np.vstack([np.load(i) for i in fl_pc])
-        pc = pc[np.random.choice(len(pc), size=self.obj_points_num)]
-        t = self.transform[obj_grasp][1]
+            grasp = np.load(f_grasp)
+            grasp = grasp[grasp_ind%len(grasp)]
+            pc = np.vstack([np.load(i) for i in fl_pc])
+            pc = pc[np.random.choice(len(pc), size=self.obj_points_num)]
+            t = self.transform[obj_grasp][1]
 
-        grasp_pc = self.collect_pc(grasp, pc, t)
-        if grasp_pc is None:
-            return None
-        level_score, refine_score = grasp[-2:]
+            grasp_pc = self.collect_pc(grasp, pc, t)
+            if grasp_pc is None:
+                index = np.random.choice(self.__len__())
+                continue
+            level_score, refine_score = grasp[-2:]
 
-        if not self.projection:
-            if len(grasp_pc) > self.grasp_points_num:
-                grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                     replace=False)].T
+            if not self.projection:
+                if len(grasp_pc) > self.grasp_points_num:
+                    grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                         replace=False)].T
+                else:
+                    grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                         replace=True)].T
             else:
-                grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                     replace=True)].T
-        else:
-            grasp_pc = grasp_pc.transpose((2, 1, 0))
-        score = level_score + refine_score*0.01
-        if score >= self.thresh_bad:
-            label = 0
-        elif score <= self.thresh_good:
-            label = 2
-        else:
-            label = 1
+                grasp_pc = grasp_pc.transpose((2, 1, 0))
+            score = level_score + refine_score*0.01
+            if score >= self.thresh_bad:
+                label = 0
+            elif score <= self.thresh_good:
+                label = 2
+            else:
+                label = 1
 
-        if self.with_obj:
-            return grasp_pc, label, obj_grasp
-        else:
-            return grasp_pc, label
+            if self.with_obj:
+                return grasp_pc, label, obj_grasp
+            else:
+                return grasp_pc, label
 
     def __len__(self):
         return self.amount
@@ -587,11 +592,9 @@ class PointGraspOneViewDataset(torch.utils.data.Dataset):
                 self.d_pc[k].append(i)
             else:
                 self.d_pc[k] = [i]
-        for k in self.d_pc.keys():
-            self.d_pc[k].sort()
 
         for i in fl_grasp:
-            k = i.split('/')[-1].split('.')[0]
+            k = '_'.join(i.split('/')[-1].split('.')[0].split('_')[1:-1])
             self.d_grasp[k] = i
         object1 = set(self.d_grasp.keys())
         object2 = set(self.transform.keys())
@@ -602,7 +605,7 @@ class PointGraspOneViewDataset(torch.utils.data.Dataset):
         center = grasp[0:3]
         axis = grasp[3:6] # binormal
         width = grasp[6]
-        angle = grasp[7]
+        angle = np.radians(grasp[7])
 
         axis = axis/np.linalg.norm(axis)
         binormal = axis
@@ -779,45 +782,51 @@ class PointGraspOneViewDataset(torch.utils.data.Dataset):
         return output
 
     def __getitem__(self, index):
-        # try:
-        obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
+        try:
+            while True:
+                obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
 
-        obj_grasp = self.object[obj_ind]
-        obj_pc = self.transform[obj_grasp][0]
-        f_grasp = self.d_grasp[obj_grasp]
-        fl_pc = np.array(self.d_pc[obj_pc])
-        np.random.shuffle(fl_pc)
+                obj_grasp = self.object[obj_ind]
+                obj_pc = self.transform[obj_grasp][0]
+                f_grasp = self.d_grasp[obj_grasp]
+                fl_pc = np.array(self.d_pc[obj_pc])
+                np.random.shuffle(fl_pc)
 
-        grasp = np.load(f_grasp)[grasp_ind]
-        pc = np.load(fl_pc[-1])
-        t = self.transform[obj_grasp][1]
+                grasp = np.load(f_grasp)
+                grasp = grasp[grasp_ind%len(grasp)]
+                pc = np.load(fl_pc[-1])
+                t = self.transform[obj_grasp][1]
 
-        grasp_pc = self.collect_pc(grasp, pc, t)
-        if grasp_pc is None:
-            return None
-        level_score, refine_score = grasp[-2:]
+                grasp_pc = self.collect_pc(grasp, pc, t)
+                if grasp_pc is None:
+                    index = np.random.choice(self.__len__())
+                    continue
+                level_score, refine_score = grasp[-2:]
 
-        if not self.projection:
-            if len(grasp_pc) > self.grasp_points_num:
-                grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                     replace=False)].T
-            else:
-                grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                     replace=True)].T
-        else:
-            grasp_pc = grasp_pc.transpose((2, 1, 0))
-        score = level_score + refine_score*0.01
-        if score >= self.thresh_bad:
-            label = 0
-        elif score <= self.thresh_good:
-            label = 1
-        else:
-            return None
+                if not self.projection:
+                    if len(grasp_pc) > self.grasp_points_num:
+                        grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                             replace=False)].T
+                    else:
+                        grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                             replace=True)].T
+                else:
+                    grasp_pc = grasp_pc.transpose((2, 1, 0))
+                score = level_score + refine_score*0.01
+                if score >= self.thresh_bad:
+                    label = 0
+                elif score <= self.thresh_good:
+                    label = 1
+                else:
+                    index = np.random.choice(self.__len__())
+                    continue
 
-        if self.with_obj:
-            return grasp_pc, label, obj_grasp
-        else:
-            return grasp_pc, label
+                if self.with_obj:
+                    return grasp_pc, label, obj_grasp
+                else:
+                    return grasp_pc, label
+        except KeyError:
+            index = np.random.randint(self.__len__())
 
     def __len__(self):
         return self.amount
@@ -859,12 +868,11 @@ class PointGraspOneViewMultiClassDataset(torch.utils.data.Dataset):
                 self.d_pc[k].append(i)
             else:
                 self.d_pc[k] = [i]
-        for k in self.d_pc.keys():
-            self.d_pc[k].sort()
 
         for i in fl_grasp:
-            k = i.split('/')[-1].split('.')[0]
+            k = '_'.join(i.split('/')[-1].split('.')[0].split('_')[1:-1])
             self.d_grasp[k] = i
+
         object1 = set(self.d_grasp.keys())
         object2 = set(self.transform.keys())
         self.object = list(object1.intersection(object2))
@@ -874,7 +882,7 @@ class PointGraspOneViewMultiClassDataset(torch.utils.data.Dataset):
         center = grasp[0:3]
         axis = grasp[3:6] # binormal
         width = grasp[6]
-        angle = grasp[7]
+        angle = np.radians(grasp[7])
 
         axis = axis/np.linalg.norm(axis)
         binormal = axis
@@ -1048,44 +1056,47 @@ class PointGraspOneViewMultiClassDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         # try:
-        obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
+        while True:
+            obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
 
-        obj_grasp = self.object[obj_ind]
-        obj_pc = self.transform[obj_grasp][0]
-        f_grasp = self.d_grasp[obj_grasp]
-        fl_pc = np.array(self.d_pc[obj_pc])
-        np.random.shuffle(fl_pc)
+            obj_grasp = self.object[obj_ind]
+            obj_pc = self.transform[obj_grasp][0]
+            f_grasp = self.d_grasp[obj_grasp]
+            fl_pc = np.array(self.d_pc[obj_pc])
+            np.random.shuffle(fl_pc)
 
-        grasp = np.load(f_grasp)[grasp_ind]
-        pc = np.load(fl_pc[-1])
-        t = self.transform[obj_grasp][1]
+            grasp = np.load(f_grasp)
+            grasp = grasp[grasp_ind%len(grasp)]
+            pc = np.load(fl_pc[-1])
+            t = self.transform[obj_grasp][1]
 
-        grasp_pc = self.collect_pc(grasp, pc, t)
-        if grasp_pc is None:
-            return None
-        level_score, refine_score = grasp[-2:]
+            grasp_pc = self.collect_pc(grasp, pc, t)
+            if grasp_pc is None:
+                index = np.random.choice(self.__len__())
+                continue
+            level_score, refine_score = grasp[-2:]
 
-        if not self.projection:
-            if len(grasp_pc) > self.grasp_points_num:
-                grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                     replace=False)].T
+            if not self.projection:
+                if len(grasp_pc) > self.grasp_points_num:
+                    grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                         replace=False)].T
+                else:
+                    grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                         replace=True)].T
             else:
-                grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                     replace=True)].T
-        else:
-            grasp_pc = grasp_pc.transpose((2, 1, 0))
-        score = level_score + refine_score*0.01
-        if score >= self.thresh_bad:
-            label = 0
-        elif score <= self.thresh_good:
-            label = 2
-        else:
-            label = 1
+                grasp_pc = grasp_pc.transpose((2, 1, 0))
+            score = level_score + refine_score*0.01
+            if score >= self.thresh_bad:
+                label = 0
+            elif score <= self.thresh_good:
+                label = 2
+            else:
+                label = 1
 
-        if self.with_obj:
-            return grasp_pc, label, obj_grasp
-        else:
-            return grasp_pc, label
+            if self.with_obj:
+                return grasp_pc, label, obj_grasp
+            else:
+                return grasp_pc, label
 
     def __len__(self):
         return self.amount
@@ -1093,25 +1104,20 @@ class PointGraspOneViewMultiClassDataset(torch.utils.data.Dataset):
 
 
 if __name__ == '__main__':
-    grasp_points_num = 1000
-    obj_points_num = 50000
-    pc_file_used_num = 20
-    thresh_good = 0.6
-    thresh_bad = 0.6
 
     input_size = 60
-    input_chann = 12  # 12
-    a = PointGraspDataset(
-        obj_points_num=obj_points_num,
-        grasp_points_num=grasp_points_num,
-        pc_file_used_num=pc_file_used_num,
-        path="../data",
-        tag='train',
-        grasp_amount_per_file=6500,
-        thresh_good=thresh_good,
-        thresh_bad=thresh_bad,
-        projection=True,
-        project_chann=input_chann,
-        project_size=input_size,
-    )
-    c, d = a.__getitem__(0)
+    input_chann = 3  # 12
+    grasp_points_num=750
+    thresh_good=0.6
+    thresh_bad=0.6
+    point_channel=3
+
+    a = PointGraspOneViewDataset(
+                    grasp_points_num=grasp_points_num,
+                    path='../data',
+                    tag='',
+                    grasp_amount_per_file=6500,
+                    thresh_good=thresh_good,
+                    thresh_bad=thresh_bad,
+                )
+    print(a[0])

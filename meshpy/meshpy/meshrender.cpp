@@ -1,7 +1,7 @@
 #include <boost/python.hpp>
 #include "boost/python/extract.hpp"
-#include "boost/python/numeric.hpp"
-#include <boost/numpy.hpp>
+// #include "boost/python/numeric.hpp"
+#include <boost/python/numpy.hpp>
 #include <iostream>
 
 #include "GL/osmesa.h"
@@ -38,11 +38,11 @@ void uint2uchar(unsigned int in, unsigned char* out){
 boost::python::tuple render_mesh(boost::python::list proj_matrices,
                                  unsigned int im_height,
                                  unsigned int im_width,
-                                 boost::python::numeric::array verts,
-                                 boost::python::numeric::array tris,
-                                 boost::python::numeric::array norms,
-                                 boost::python::numeric::array mat_props,
-                                 boost::python::numeric::array light_props,
+                                 boost::python::numpy::ndarray verts,
+                                 boost::python::numpy::ndarray tris,
+                                 boost::python::numpy::ndarray norms,
+                                 boost::python::numpy::ndarray mat_props,
+                                 boost::python::numpy::ndarray light_props,
 				 bool enable_lighting = false,
                                  bool debug = false)
 {
@@ -320,8 +320,8 @@ boost::python::tuple render_mesh(boost::python::list proj_matrices,
 
     // append ndarray color image to list
     boost::python::tuple color_shape = boost::python::make_tuple(im_height, im_width, 3);
-    boost::numpy::dtype color_dt = boost::numpy::dtype::get_builtin<unsigned char>();
-    boost::numpy::ndarray color_arr = boost::numpy::from_data(color_result, color_dt, color_shape,
+    boost::python::numpy::dtype color_dt = boost::python::numpy::dtype::get_builtin<unsigned char>();
+    boost::python::numpy::ndarray color_arr = boost::python::numpy::from_data(color_result, color_dt, color_shape,
                                                               boost::python::make_tuple(color_shape[1]*color_shape[2]*sizeof(unsigned char),
                                                                                         color_shape[2]*sizeof(unsigned char),
                                                                                         sizeof(unsigned char)),
@@ -330,8 +330,8 @@ boost::python::tuple render_mesh(boost::python::list proj_matrices,
 
     // append ndarray depth image to list
     boost::python::tuple depth_shape = boost::python::make_tuple(im_height, im_width);
-    boost::numpy::dtype depth_dt = boost::numpy::dtype::get_builtin<float>();
-    boost::numpy::ndarray depth_arr = boost::numpy::from_data(depth_result, depth_dt, depth_shape,
+    boost::python::numpy::dtype depth_dt = boost::python::numpy::dtype::get_builtin<float>();
+    boost::python::numpy::ndarray depth_arr = boost::python::numpy::from_data(depth_result, depth_dt, depth_shape,
                                                               boost::python::make_tuple(depth_shape[1]*sizeof(float),
                                                                                         sizeof(float)),
                                                               boost::python::object());
@@ -356,10 +356,10 @@ boost::python::tuple render_mesh(boost::python::list proj_matrices,
 }
 
 // Test function for multiplying an array by a scalar
-boost::python::list mul_array(boost::python::numeric::array data, int x)
+boost::python::list mul_array(boost::python::numpy::ndarray data, int x)
 {
   // Access a built-in type (an array)
-  boost::python::numeric::array a = data;
+  boost::python::numpy::ndarray a = data;
   long int bufLen;
   void const *buffer;
   bool isReadBuffer = !PyObject_AsReadBuffer(a.ptr(), &buffer, &bufLen);
@@ -373,8 +373,8 @@ boost::python::list mul_array(boost::python::numeric::array data, int x)
 
   const boost::python::tuple& shape = boost::python::extract<boost::python::tuple>(a.attr("shape"));
   std::cout << "Shape " << boost::python::extract<int>(shape[0]) << " " << boost::python::extract<int>(shape[1]) << std::endl;
-  boost::numpy::dtype dt = boost::numpy::dtype::get_builtin<double>();
-  boost::numpy::ndarray result = boost::numpy::from_data(mult, dt, shape,
+  boost::python::numpy::dtype dt = boost::python::numpy::dtype::get_builtin<double>();
+  boost::python::numpy::ndarray result = boost::python::numpy::from_data(mult, dt, shape,
                                                          boost::python::make_tuple(shape[0]*sizeof(double),
                                                                                    sizeof(double)),
                                                          boost::python::object());
@@ -387,8 +387,8 @@ boost::python::list mul_array(boost::python::numeric::array data, int x)
 // Expose classes and methods to Python
 BOOST_PYTHON_MODULE(meshrender) {
   Py_Initialize();
-  boost::numpy::initialize();
-  boost::python::numeric::array::set_module_and_type("numpy", "ndarray");
+  boost::python::numpy::initialize();
+  // boost::python::numpy::array::set_module_and_type("numpy", "ndarray");
 
   def("mul_array", &mul_array);
   def("render_mesh", &render_mesh);

@@ -53,15 +53,18 @@ thresh_good=0.6
 thresh_bad=0.6
 point_channel=3
 
-train_loader = torch.utils.data.DataLoader(
-    PointGraspOneViewDataset(
+train_ds = PointGraspOneViewDataset(
         grasp_points_num=grasp_points_num,
         path=args.data_path,
         tag='train',
         grasp_amount_per_file=6500,
         thresh_good=thresh_good,
         thresh_bad=thresh_bad,
-    ),
+    )
+assert len(train_ds)>0
+
+train_loader = torch.utils.data.DataLoader(
+    train_ds,
     batch_size=args.batch_size,
     num_workers=32,
     pin_memory=True,
@@ -70,8 +73,7 @@ train_loader = torch.utils.data.DataLoader(
     collate_fn=my_collate,
 )
 
-test_loader = torch.utils.data.DataLoader(
-    PointGraspOneViewDataset(
+test_ds = PointGraspOneViewDataset(
         grasp_points_num=grasp_points_num,
         path=args.data_path,
         tag='test',
@@ -79,7 +81,11 @@ test_loader = torch.utils.data.DataLoader(
         thresh_good=thresh_good,
         thresh_bad=thresh_bad,
         with_obj=True,
-    ),
+    )
+assert len(test_ds)>0
+
+test_loader = torch.utils.data.DataLoader(
+    test_ds,
     batch_size=args.batch_size,
     num_workers=32,
     pin_memory=True,
@@ -174,7 +180,7 @@ def main():
             logger.add_scalar('test_loss', loss, epoch)
             if epoch % args.save_interval == 0:
                 path = os.path.join(args.model_path, args.tag + '_{}.model'.format(epoch))
-                torch.save(model, path)
+                torch.save(model.state_dict(), path)
                 print('Save model @ {}'.format(path))
     else:
         print('testing...')

@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import numba as nb
 import h5py as h5
 from scipy.misc import imread
 from struct import pack, unpack
@@ -9,18 +10,17 @@ import glob
 
 
 # extract pointcloud from rgb-d, then convert it into obj coordinate system(tsdf/poisson reconstructed object)
-
-def im2col(im, psize):
-    n_channels = 1 if len(im.shape) == 2 else im.shape[0]
-    (n_channels, rows, cols) = (1,) * (3 - len(im.shape)) + im.shape
+@nb.jit(nopython=True)
+def im2col_nb(im, psize):
+    n_channels, rows, cols = im.shape[0], im.shape[1], im.shape[2]
 
     im_pad = np.zeros((n_channels,
                        int(math.ceil(1.0 * rows / psize) * psize),
-                       int(math.ceil(1.0 * cols / psize) * psize)))
+                       int(math.ceil(1.0 * cols / psize) * psize)), dtype=np.float32)
     im_pad[:, 0:rows, 0:cols] = im
 
     final = np.zeros((im_pad.shape[1], im_pad.shape[2], n_channels,
-                      psize, psize))
+                      psize, psize), dtype=np.float32)
     for c in range(n_channels):
         for x in range(psize):
             for y in range(psize):
@@ -28,22 +28,19 @@ def im2col(im, psize):
                     (im_pad[c, x:], im_pad[c, :x]))
                 im_shift = np.column_stack(
                     (im_shift[:, y:], im_shift[:, :y]))
-                final[x::psize, y::psize, c] = np.swapaxes(
-                    im_shift.reshape(int(im_pad.shape[1] / psize), psize,
-                                     int(im_pad.shape[2] / psize), psize), 1, 2)
+                shape = (int(im_pad.shape[1] / psize), psize,
+                         int(im_pad.shape[2] / psize), psize)
+                final[x::psize, y::psize, c] = im_shift.reshape(shape[0], shape[1]*shape[2], shape[3]).T.reshape(shape[3], shape[1], shape[2], shape[0]).T
 
-    return np.squeeze(final[0:rows - psize + 1, 0:cols - psize + 1])
+    return final[0:rows - psize + 1, 0:cols - psize + 1]
 
 def filterDiscontinuities(depthMap):
     filt_size = 7
     thresh = 1000
 
-    # Ensure that filter sizes are okay
-    assert filt_size % 2 == 1, "Can only use odd filter sizes."
-
     # Compute discontinuities
     offset = int((filt_size - 1) / 2)
-    patches = 1.0 * im2col(depthMap, filt_size)
+    patches = im2col_nb(depthMap[np.newaxis], filt_size)[:,:,0]
     mids = patches[:, :, offset, offset]
     mins = np.min(patches, axis=(2, 3))
     maxes = np.max(patches, axis=(2, 3))
@@ -59,7 +56,9 @@ def filterDiscontinuities(depthMap):
 
     return depthMap * (1 - final_mark)
 
-def registerDepthMap(unregisteredDepthMap,
+
+@nb.jit(nopython=True)
+def registerDepthMap_nb(unregisteredDepthMap,
                      rgbImage,
                      depthK,
                      rgbK,
@@ -74,11 +73,7 @@ def registerDepthMap(unregisteredDepthMap,
 
     registeredDepthMap = np.zeros((registeredHeight, registeredWidth))
 
-    xyzDepth = np.empty((4,1))
-    xyzRGB = np.empty((4,1))
-
-    # Ensure that the last value is 1 (homogeneous coordinates)
-    xyzDepth[3] = 1
+    xyzDepth = np.ones((1,4), dtype=np.float32)
 
     invDepthFx = 1.0 / depthK[0,0]
     invDepthFy = 1.0 / depthK[1,1]
@@ -98,22 +93,11 @@ def registerDepthMap(unregisteredDepthMap,
             if depth == 0:
                 continue
 
-            xyzDepth[0] = ((u - depthCx) * depth) * invDepthFx
-            xyzDepth[1] = ((v - depthCy) * depth) * invDepthFy
-            xyzDepth[2] = depth
+            xyzDepth[0,0] = ((u - depthCx) * depth) * invDepthFx
+            xyzDepth[0,1] = ((v - depthCy) * depth) * invDepthFy
+            xyzDepth[0,2] = depth
 
-            xyzRGB[0] = (H_RGBFromDepth[0,0] * xyzDepth[0] +
-                         H_RGBFromDepth[0,1] * xyzDepth[1] +
-                         H_RGBFromDepth[0,2] * xyzDepth[2] +
-                         H_RGBFromDepth[0,3])
-            xyzRGB[1] = (H_RGBFromDepth[1,0] * xyzDepth[0] +
-                         H_RGBFromDepth[1,1] * xyzDepth[1] +
-                         H_RGBFromDepth[1,2] * xyzDepth[2] +
-                         H_RGBFromDepth[1,3])
-            xyzRGB[2] = (H_RGBFromDepth[2,0] * xyzDepth[0] +
-                         H_RGBFromDepth[2,1] * xyzDepth[1] +
-                         H_RGBFromDepth[2,2] * xyzDepth[2] +
-                         H_RGBFromDepth[2,3])
+            xyzRGB = np.sum(H_RGBFromDepth*xyzDepth, axis=1) # shape: (3,)
 
             invRGB_Z  = 1.0 / xyzRGB[2]
             undistorted[0] = (rgbFx * xyzRGB[0]) * invRGB_Z + rgbCx
@@ -131,7 +115,9 @@ def registerDepthMap(unregisteredDepthMap,
 
     return registeredDepthMap
 
-def registeredDepthMapToPointCloud(depthMap, rgbImage, rgbK, refFromRGB, objFromref, organized=False):
+
+@nb.jit(nopython=True)
+def registeredDepthMapToPointCloud_nb(depthMap, rgbImage, rgbK, refFromRGB, objFromref):
     rgbCx = rgbK[0,2]
     rgbCy = rgbK[1,2]
     invRGBFx = 1.0/rgbK[0,0]
@@ -140,10 +126,7 @@ def registeredDepthMapToPointCloud(depthMap, rgbImage, rgbK, refFromRGB, objFrom
     height = depthMap.shape[0]
     width = depthMap.shape[1]
 
-    if organized:
-      cloud = np.empty((height, width, 6), dtype=np.float)
-    else:
-      cloud = np.empty((1, height*width, 6), dtype=np.float)
+    cloud = np.empty((1, height*width, 6), dtype=np.float32)
 
     goodPointsCount = 0
     for v in range(height):
@@ -151,66 +134,32 @@ def registeredDepthMapToPointCloud(depthMap, rgbImage, rgbK, refFromRGB, objFrom
 
             depth = depthMap[v,u]
 
-            if organized:
-              row = v
-              col = u
-            else:
-              row = 0
-              col = goodPointsCount
+            row = 0
+            col = goodPointsCount
 
             if depth <= 0:
-                if organized:
-                    if depth <= 0:
-                       cloud[row,col,0] = float('nan')
-                       cloud[row,col,1] = float('nan')
-                       cloud[row,col,2] = float('nan')
-                       cloud[row,col,3] = 0
-                       cloud[row,col,4] = 0
-                       cloud[row,col,5] = 0
                 continue
 
             x = (u - rgbCx) * depth * invRGBFx
             y = (v - rgbCy) * depth * invRGBFy
             z = depth
-            
-            #refFromRGB 
-            x1 = (refFromRGB[0,0] * x +
-                         refFromRGB[0,1] * y +
-                         refFromRGB[0,2] * z +
-                         refFromRGB[0,3])
-            y1 = (refFromRGB[1,0] * x +
-                         refFromRGB[1,1] * y +
-                         refFromRGB[1,2] * z +
-                         refFromRGB[1,3])
-            z1 = (refFromRGB[2,0] * x +
-                         refFromRGB[2,1] * y +
-                         refFromRGB[2,2] * z +
-                         refFromRGB[2,3])
 
-            x, y, z = x1, y1, z1
+            xyz1 = np.array([x,y,z,1], dtype=np.float32).reshape(1, 4) # shape: (1, 4): xyz1
 
+            assert len(refFromRGB.shape)==2
+            xyz = np.sum(refFromRGB*xyz1, axis=1) # shape: (3, )
+            xyz1[0,:3] = xyz[:3] # update xyz1
+
+            assert len(objFromref.shape)==2
             # obj from ref
-            cloud[row,col,0] = (objFromref[0,0] * x +
-                         objFromref[0,1] * y +
-                         objFromref[0,2] * z +
-                         objFromref[0,3])
-            cloud[row,col,1] = (objFromref[1,0] * x +
-                         objFromref[1,1] * y +
-                         objFromref[1,2] * z +
-                         objFromref[1,3])
-            cloud[row,col,2] = (objFromref[2,0] * x +
-                         objFromref[2,1] * y +
-                         objFromref[2,2] * z +
-                         objFromref[2,3])
+            cloud[row,col,:3] = np.sum(objFromref[:3,:4]*xyz1, axis=1)
 
             cloud[row,col,3] = rgbImage[v,u,0]
             cloud[row,col,4] = rgbImage[v,u,1]
             cloud[row,col,5] = rgbImage[v,u,2]
-            if not organized:
-              goodPointsCount += 1
+            goodPointsCount += 1
 
-    if not organized:
-      cloud = cloud[:,:goodPointsCount,:]
+    cloud = cloud[:,:goodPointsCount,:]
 
     return cloud
 
@@ -340,12 +289,12 @@ def getRGBFromDepthTransform(calibration, camera, referenceCamera):
 
 
 def generate(path):
-    path = path.split('/') 
+    path = path.split('/')
     # Parameters
-    ycb_data_folder = path[0]			# Folder that contains the ycb data.	
-    target_object = path[1]	# Full name of the target object.
-    viewpoint_camera = path[2].split('_')[0]				# Camera which the viewpoint will be generated.
-    viewpoint_angle = path[2].split('_')[1].split('.')[0]				# Relative angle of the object w.r.t the camera (angle of the turntable).
+    ycb_data_folder = path[0]+'/'+path[1]            # Folder that contains the ycb data.
+    target_object = path[2]    # Full name of the target object.
+    viewpoint_camera = path[3].split('_')[0]                # Camera which the viewpoint will be generated.
+    viewpoint_angle = path[3].split('_')[1].split('.')[0]                # Relative angle of the object w.r.t the camera (angle of the turntable).
 
     referenceCamera = "NP5" # can only be NP5
 
@@ -353,12 +302,15 @@ def generate(path):
     pcd_fname = os.path.join(ycb_data_folder, target_object, "clouds", "pc_"+viewpoint_camera+"_"+referenceCamera+"_"+viewpoint_angle+".pcd")
     npy_fname = os.path.join(ycb_data_folder, target_object, "clouds", "pc_"+viewpoint_camera+"_"+referenceCamera+"_"+viewpoint_angle+".npy")
 
+    '''
     if os.path.exists(ply_fname) and os.path.exists(pcd_fname):
         print(ycb_data_folder, target_object, viewpoint_camera, viewpoint_angle, 'pass')
         return
     else:
-        print(ycb_data_folder, target_object, viewpoint_camera, viewpoint_angle)
+    '''
+    print(ycb_data_folder, target_object, viewpoint_camera, viewpoint_angle)
 
+    #if True:
     try:
         if not os.path.exists(os.path.join(ycb_data_folder, target_object, "clouds")):
             os.makedirs(os.path.join(ycb_data_folder, target_object, "clouds"))
@@ -386,33 +338,38 @@ def generate(path):
         unregisteredDepthMap = h5.File(depthFilename, 'r')["depth"][:]
         unregisteredDepthMap = filterDiscontinuities(unregisteredDepthMap) * depthScale
 
-        registeredDepthMap = registerDepthMap(unregisteredDepthMap,
+        registeredDepthMap = registerDepthMap_nb(unregisteredDepthMap,
                                               rgbImage,
                                               depthK,
                                               rgbK,
                                               H_RGBFromDepth)
-        # apply mask 
+        # apply mask
         registeredDepthMap[pbmImage == 255] = 0
 
-        pointCloud = registeredDepthMapToPointCloud(registeredDepthMap, rgbImage, rgbK, refFromRGB, objFromref)
+        pointCloud = registeredDepthMapToPointCloud_nb(registeredDepthMap, rgbImage, rgbK, refFromRGB, objFromref)
 
         writePLY(ply_fname, pointCloud)
         writePCD(pcd_fname, pointCloud)
         np.save(npy_fname, pointCloud[: ,:, :3].reshape(-1, 3))
-    except:
+    except Exception as e:
         f = open('exception.txt', 'a')
-        f.write('/'.join(path) + '\n')
+        f.write('/'.join(path) + ': ' + str(e) + '\n')
         f.close()
-        print(ycb_data_folder, target_object, viewpoint_camera, viewpoint_angle, 'failed')
-        return 
+        print(ycb_data_folder, target_object, viewpoint_camera, viewpoint_angle, 'failed', str(e))
+        if os.path.exists(ply_fname):
+            os.unlink(ply_fname)
+        if os.path.exists(pcd_fname):
+            os.unlink(pcd_fname)
+        if os.path.exists(npy_fname):
+            os.unlink(npy_fname)
+        return
 
-
-def main():
-    fl = np.array(glob.glob('data/ycb_rgbd/0*/*.jpg'))
-    np.random.shuffle(fl)
-    cores = mp.cpu_count()
-    pool = mp.Pool(processes=cores) 
-    pool.map(generate, fl)
 
 if __name__ == "__main__":
-    main()
+    fl = np.array(glob.glob('data/ycb_rgbd/0*/*.jpg'))
+    np.random.shuffle(fl)
+    cores = 20 # mp.cpu_count()
+    pool = mp.Pool(processes=cores)
+    pool.map(generate, fl)
+    #for v in fl:
+    #    generate(v)
