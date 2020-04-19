@@ -2,12 +2,13 @@ import os
 import glob
 import pickle
 
-import pcl
+import point_cloud_utils as pcu
 import torch
 import torch.utils.data
 import torch.nn as nn
 import numpy as np
 
+#from mayavi import mlab
 
 class PointGraspDataset(torch.utils.data.Dataset):
     def __init__(self, obj_points_num, grasp_points_num, pc_file_used_num, grasp_amount_per_file, thresh_good,
@@ -200,13 +201,16 @@ class PointGraspDataset(torch.utils.data.Dataset):
         for gpd baseline, only support input_chann == [3, 12]
         """
         pc = pc.astype(np.float32)
+        '''
         pc = pcl.PointCloud(pc)
         norm = pc.make_NormalEstimation()
         norm.set_KSearch(self.normal_K)
         normals = norm.compute()
         surface_normal = normals.to_array()
+        '''
+        surface_normal = pcu.estimate_normals(pc, k=self.normal_K)
         surface_normal = surface_normal[:, 0:3]
-        pc = pc.to_array()
+        #pc = pc.to_array()
         grasp_pc = pc[self.in_ind]
         grasp_pc_norm = surface_normal[self.in_ind]
         bad_check = (grasp_pc_norm != grasp_pc_norm)
@@ -474,13 +478,16 @@ class PointGraspMultiClassDataset(torch.utils.data.Dataset):
         for gpd baseline, only support input_chann == [3, 12]
         """
         pc = pc.astype(np.float32)
+        '''
         pc = pcl.PointCloud(pc)
         norm = pc.make_NormalEstimation()
         norm.set_KSearch(self.normal_K)
         normals = norm.compute()
         surface_normal = normals.to_array()
+        '''
+        surface_normal = pcu.estimate_normals(pc, k=self.normal_K)
         surface_normal = surface_normal[:, 0:3]
-        pc = pc.to_array()
+        #pc = pc.to_array()
         grasp_pc = pc[self.in_ind]
         grasp_pc_norm = surface_normal[self.in_ind]
         bad_check = (grasp_pc_norm != grasp_pc_norm)
@@ -746,13 +753,29 @@ class PointGraspOneViewDataset(torch.utils.data.Dataset):
         for gpd baseline, only support input_chann == [3, 12]
         """
         pc = pc.astype(np.float32)
+        '''
         pc = pcl.PointCloud(pc)
         norm = pc.make_NormalEstimation()
         norm.set_KSearch(self.normal_K)
         normals = norm.compute()
         surface_normal = normals.to_array()
+        '''
+        surface_normal = pcu.estimate_normals(pc, k=self.normal_K)
         surface_normal = surface_normal[:, 0:3]
-        pc = pc.to_array()
+
+        '''
+        mlab.points3d(pc[:,0], pc[:,1], pc[:,2], scale_factor=0.003, color=(1,1,0))
+        endpoints = pc + surface_normal * 0.02
+        for i in range(len(endpoints)):
+            xs = np.append(pc[i,0], endpoints[i,0])
+            ys = np.append(pc[i,1], endpoints[i,1])
+            zs = np.append(pc[i,2], endpoints[i,2])
+            mlab.plot3d(xs, ys, zs, tube_radius=0.001, color=(0,1,0))
+        mlab.show()
+        exit(0)
+        '''
+
+        #pc = pc.to_array()
         grasp_pc = pc[self.in_ind]
         grasp_pc_norm = surface_normal[self.in_ind]
         bad_check = (grasp_pc_norm != grasp_pc_norm)
@@ -1019,13 +1042,16 @@ class PointGraspOneViewMultiClassDataset(torch.utils.data.Dataset):
         for gpd baseline, only support input_chann == [3, 12]
         """
         pc = pc.astype(np.float32)
+        '''
         pc = pcl.PointCloud(pc)
         norm = pc.make_NormalEstimation()
         norm.set_KSearch(self.normal_K)
         normals = norm.compute()
         surface_normal = normals.to_array()
+        '''
+        surface_normal = pcu.estimate_normals(pc, k=self.normal_K)
         surface_normal = surface_normal[:, 0:3]
-        pc = pc.to_array()
+        #pc = pc.to_array()
         grasp_pc = pc[self.in_ind]
         grasp_pc_norm = surface_normal[self.in_ind]
         bad_check = (grasp_pc_norm != grasp_pc_norm)
@@ -1115,9 +1141,10 @@ if __name__ == '__main__':
     a = PointGraspOneViewDataset(
                     grasp_points_num=grasp_points_num,
                     path='../data',
-                    tag='',
+                    tag='train',
                     grasp_amount_per_file=6500,
                     thresh_good=thresh_good,
                     thresh_bad=thresh_bad,
+                    projection=True,
                 )
     print(a[0])

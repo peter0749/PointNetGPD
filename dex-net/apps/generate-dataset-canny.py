@@ -98,7 +98,7 @@ def worker(i, sample_nums, grasp_amount, good_grasp):
 
     good_count_perfect = np.zeros(len(fc_list))
     count = 0
-    max_attempt_n = 300
+    max_attempt_n = 20
     minimum_grasp_per_fc = grasp_amount
     while np.sum(good_count_perfect < minimum_grasp_per_fc) != 0 and max_attempt_n>0:
         grasps = ags.generate_grasps(obj, target_num_grasps=sample_nums, grasp_gen_mult=10,
@@ -157,6 +157,8 @@ if __name__ == '__main__':
     job_list = np.arange(object_numbers)
     job_list = list(job_list)
     pool_size = 4  # number of jobs did at same time
+    if len(sys.argv) > 3:
+        pool_size = int(sys.argv[3])
     assert (pool_size <= len(job_list))
     # Initialize pool
     pool = []
