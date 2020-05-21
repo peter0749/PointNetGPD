@@ -243,10 +243,14 @@ class PointGraspDataset(torch.utils.data.Dataset):
         while True:
             obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
             obj_grasp = self.object[obj_ind]
-            obj_pc = self.transform[obj_grasp][0]
-            f_grasp = self.d_grasp[obj_grasp]
-            fl_pc = np.array(self.d_pc[obj_pc])
-            fl_pc = fl_pc[np.random.choice(len(fl_pc), size=self.pc_file_used_num)]
+            try:
+                obj_pc = self.transform[obj_grasp][0]
+                f_grasp = self.d_grasp[obj_grasp]
+                fl_pc = np.array(self.d_pc[obj_pc])
+                fl_pc = fl_pc[np.random.choice(len(fl_pc), size=self.pc_file_used_num)]
+            except KeyError:
+                index = np.random.randint(self.__len__())
+                continue
 
             grasp = np.load(f_grasp)
             grasp = grasp[grasp_ind%len(grasp)]
@@ -520,10 +524,14 @@ class PointGraspMultiClassDataset(torch.utils.data.Dataset):
         while True:
             obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
             obj_grasp = self.object[obj_ind]
-            obj_pc = self.transform[obj_grasp][0]
-            f_grasp = self.d_grasp[obj_grasp]
-            fl_pc = np.array(self.d_pc[obj_pc])
-            fl_pc = fl_pc[np.random.choice(len(fl_pc), size=self.pc_file_used_num)]
+            try:
+                obj_pc = self.transform[obj_grasp][0]
+                f_grasp = self.d_grasp[obj_grasp]
+                fl_pc = np.array(self.d_pc[obj_pc])
+                fl_pc = fl_pc[np.random.choice(len(fl_pc), size=self.pc_file_used_num)]
+            except KeyError:
+                index = np.random.randint(self.__len__())
+                continue
 
             grasp = np.load(f_grasp)
             grasp = grasp[grasp_ind%len(grasp)]
@@ -805,51 +813,51 @@ class PointGraspOneViewDataset(torch.utils.data.Dataset):
         return output
 
     def __getitem__(self, index):
-        try:
-            while True:
-                obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
-
-                obj_grasp = self.object[obj_ind]
+        while True:
+            obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
+            obj_grasp = self.object[obj_ind]
+            try:
                 obj_pc = self.transform[obj_grasp][0]
                 f_grasp = self.d_grasp[obj_grasp]
                 fl_pc = np.array(self.d_pc[obj_pc])
                 np.random.shuffle(fl_pc)
+            except KeyError:
+                index = np.random.randint(self.__len__())
+                continue
 
-                grasp = np.load(f_grasp)
-                grasp = grasp[grasp_ind%len(grasp)]
-                pc = np.load(fl_pc[-1])
-                t = self.transform[obj_grasp][1]
+            grasp = np.load(f_grasp)
+            grasp = grasp[grasp_ind%len(grasp)]
+            pc = np.load(fl_pc[-1])
+            t = self.transform[obj_grasp][1]
 
-                grasp_pc = self.collect_pc(grasp, pc, t)
-                if grasp_pc is None:
-                    index = np.random.choice(self.__len__())
-                    continue
-                level_score, refine_score = grasp[-2:]
+            grasp_pc = self.collect_pc(grasp, pc, t)
+            if grasp_pc is None:
+                index = np.random.choice(self.__len__())
+                continue
+            level_score, refine_score = grasp[-2:]
 
-                if not self.projection:
-                    if len(grasp_pc) > self.grasp_points_num:
-                        grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                             replace=False)].T
-                    else:
-                        grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
-                                                             replace=True)].T
+            if not self.projection:
+                if len(grasp_pc) > self.grasp_points_num:
+                    grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                         replace=False)].T
                 else:
-                    grasp_pc = grasp_pc.transpose((2, 1, 0))
-                score = level_score + refine_score*0.01
-                if score >= self.thresh_bad:
-                    label = 0
-                elif score <= self.thresh_good:
-                    label = 1
-                else:
-                    index = np.random.choice(self.__len__())
-                    continue
+                    grasp_pc = grasp_pc[np.random.choice(len(grasp_pc), size=self.grasp_points_num,
+                                                         replace=True)].T
+            else:
+                grasp_pc = grasp_pc.transpose((2, 1, 0))
+            score = level_score + refine_score*0.01
+            if score >= self.thresh_bad:
+                label = 0
+            elif score <= self.thresh_good:
+                label = 1
+            else:
+                index = np.random.choice(self.__len__())
+                continue
 
-                if self.with_obj:
-                    return grasp_pc, label, obj_grasp
-                else:
-                    return grasp_pc, label
-        except KeyError:
-            index = np.random.randint(self.__len__())
+            if self.with_obj:
+                return grasp_pc, label, obj_grasp
+            else:
+                return grasp_pc, label
 
     def __len__(self):
         return self.amount
@@ -1081,15 +1089,17 @@ class PointGraspOneViewMultiClassDataset(torch.utils.data.Dataset):
         return output
 
     def __getitem__(self, index):
-        # try:
         while True:
             obj_ind, grasp_ind = np.unravel_index(index, (len(self.object), self.grasp_amount_per_file))
-
             obj_grasp = self.object[obj_ind]
-            obj_pc = self.transform[obj_grasp][0]
-            f_grasp = self.d_grasp[obj_grasp]
-            fl_pc = np.array(self.d_pc[obj_pc])
-            np.random.shuffle(fl_pc)
+            try:
+                obj_pc = self.transform[obj_grasp][0]
+                f_grasp = self.d_grasp[obj_grasp]
+                fl_pc = np.array(self.d_pc[obj_pc])
+                np.random.shuffle(fl_pc)
+            except KeyError:
+                index = np.random.randint(self.__len__())
+                continue
 
             grasp = np.load(f_grasp)
             grasp = grasp[grasp_ind%len(grasp)]
@@ -1127,6 +1137,238 @@ class PointGraspOneViewMultiClassDataset(torch.utils.data.Dataset):
     def __len__(self):
         return self.amount
 
+class GraspCustomLabelDataset(torch.utils.data.Dataset):
+    def __init__(self, config, grasp_points_num=750, projection=False, project_chann=3, project_size=60, label_suffix='_nms.npy', **kwargs):
+        '''
+        config: The configuration file for another detection model
+        '''
+        super(GraspCustomLabelDataset, self).__init__(**kwargs)
+        self.config = config
+
+        self.projection = projection
+        self.project_chann = project_chann
+        if self.project_chann not in [3, 12]:
+            raise NotImplementedError
+        self.project_size = project_size
+        if self.project_size != 60:
+            raise NotImplementedError
+        self.normal_K = 10
+        self.voxel_point_num  = 50
+        self.projection_margin = 1
+        self.minimum_point_amount = 50
+        self.grasp_points_num = grasp_points_num
+
+        assert 'object_list' in config
+        self.object_set_train   = config['object_list']['train']
+        self.object_set_val     = config['object_list']['val']
+        assert len(set(self.object_set_train) & set(self.object_set_val))==0
+        self.object_set_all     = self.object_set_train + self.object_set_val
+
+        self.obj2pcs = {}
+        for obj in self.object_set_all:
+            self.obj2pcs[obj] = glob.glob(config['point_cloud_path']+'/'+obj+'/clouds/*.npy')
+
+        print('Loading labels...')
+        self.labels_train = []
+        self.labels_val   = []
+        self.n_pos_train = 0
+        self.n_neg_train = 0
+        self.n_pos_val = 0
+        self.n_neg_val = 0
+        # load training label
+        for obj in self.object_set_train:
+            grasp_path = config['grasp_path']
+            labels_good = [(obj, pose.astype(np.float32), 1) for pose in np.load(grasp_path + '/good_grasps/' + obj + label_suffix)] # (N, 3, 4)
+            labels_bad  = [(obj, pose.astype(np.float32), 0) for pose in np.load(grasp_path + '/bad_grasps/'  + obj + label_suffix)]
+            self.labels_train.extend(labels_good)
+            self.labels_train.extend(labels_bad)
+            self.n_pos_train += len(labels_good)
+            self.n_neg_train += len(labels_bad)
+        # load validation label
+        for obj in self.object_set_val:
+            grasp_path = config['grasp_path']
+            labels_good = [(obj, pose.astype(np.float32), 1) for pose in np.load(grasp_path + '/good_grasps/' + obj + label_suffix)] # (N, 3, 4)
+            labels_bad  = [(obj, pose.astype(np.float32), 0) for pose in np.load(grasp_path + '/bad_grasps/'  + obj + label_suffix)]
+            self.labels_val.extend(labels_good)
+            self.labels_val.extend(labels_bad)
+            self.n_pos_val += len(labels_good)
+            self.n_neg_val += len(labels_bad)
+        # check overlap
+        for obj, pose, s in self.labels_train:
+            assert obj in self.object_set_train
+            assert obj not in self.object_set_val
+        # check overlap
+        for obj, pose, s in self.labels_val:
+            assert obj in self.object_set_val
+            assert obj not in self.object_set_train
+        self.train() # set dataset to training mode
+
+    def train(self):
+        self.object_set = self.object_set_train
+        self.labels = self.labels_train
+
+    def eval(self):
+        self.object_set = self.object_set_val
+        self.labels = self.labels_val
+
+    def cal_projection(self, point_cloud_voxel, m_width_of_pic, margin, surface_normal, order, gripper_width):
+        occupy_pic = np.zeros([m_width_of_pic, m_width_of_pic, 1])
+        norm_pic = np.zeros([m_width_of_pic, m_width_of_pic, 3])
+        norm_pic_num = np.zeros([m_width_of_pic, m_width_of_pic, 1])
+
+        max_x = point_cloud_voxel[:, order[0]].max()
+        min_x = point_cloud_voxel[:, order[0]].min()
+        max_y = point_cloud_voxel[:, order[1]].max()
+        min_y = point_cloud_voxel[:, order[1]].min()
+        min_z = point_cloud_voxel[:, order[2]].min()
+
+        tmp = max((max_x - min_x), (max_y - min_y))
+        if tmp == 0:
+            print("WARNING : the num of input points seems only have one, no possilbe to do learning on"
+                  "such data, please throw it away.  -- Hongzhuo")
+            return occupy_pic, norm_pic
+        # Here, we use the gripper width to cal the res:
+        res = gripper_width / (m_width_of_pic-margin)
+
+        voxel_points_square_norm = []
+        x_coord_r = ((point_cloud_voxel[:, order[0]]) / res + m_width_of_pic / 2)
+        y_coord_r = ((point_cloud_voxel[:, order[1]]) / res + m_width_of_pic / 2)
+        z_coord_r = ((point_cloud_voxel[:, order[2]]) / res + m_width_of_pic / 2)
+        x_coord_r = np.floor(x_coord_r).astype(int)
+        y_coord_r = np.floor(y_coord_r).astype(int)
+        z_coord_r = np.floor(z_coord_r).astype(int)
+        voxel_index = np.array([x_coord_r, y_coord_r, z_coord_r]).T  # all point in grid
+        coordinate_buffer = np.unique(voxel_index, axis=0)  # get a list of points without duplication
+        K = len(coordinate_buffer)
+        # [K, 1] store number of points in each voxel grid
+        number_buffer = np.zeros(shape=K, dtype=np.int64)
+        feature_buffer = np.zeros(shape=(K, self.voxel_point_num, 6), dtype=np.float32)
+        index_buffer = {}
+        for i in range(K):
+            index_buffer[tuple(coordinate_buffer[i])] = i  # got index of coordinate
+
+        for voxel, point, normal in zip(voxel_index, point_cloud_voxel, surface_normal):
+            index = index_buffer[tuple(voxel)]
+            number = number_buffer[index]
+            if number < self.voxel_point_num:
+                feature_buffer[index, number, :3] = point
+                feature_buffer[index, number, 3:6] = normal
+                number_buffer[index] += 1
+
+        voxel_points_square_norm = np.sum(feature_buffer[..., -3:], axis=1)/number_buffer[:, np.newaxis]
+        voxel_points_square = coordinate_buffer
+
+        if len(voxel_points_square) == 0:
+            return occupy_pic, norm_pic
+        x_coord_square = voxel_points_square[:, 0]
+        y_coord_square = voxel_points_square[:, 1]
+        norm_pic[x_coord_square, y_coord_square, :] = voxel_points_square_norm
+        occupy_pic[x_coord_square, y_coord_square] = number_buffer[:, np.newaxis]
+        occupy_max = occupy_pic.max()
+        assert(occupy_max > 0)
+        occupy_pic = occupy_pic / occupy_max
+        return occupy_pic, norm_pic
+
+    def project_pc(self, pc, gripper_width, in_ind):
+        """
+        for gpd baseline, only support input_chann == [3, 12]
+        """
+        pc = pc.astype(np.float32)
+        '''
+        pc = pcl.PointCloud(pc)
+        norm = pc.make_NormalEstimation()
+        norm.set_KSearch(self.normal_K)
+        normals = norm.compute()
+        surface_normal = normals.to_array()
+        '''
+        surface_normal = pcu.estimate_normals(pc, k=self.normal_K)
+        surface_normal = surface_normal[:, 0:3]
+
+        grasp_pc = pc[in_ind]
+        grasp_pc_norm = surface_normal[in_ind]
+        bad_check = (grasp_pc_norm != grasp_pc_norm)
+        if np.sum(bad_check)!=0:
+            bad_ind = np.where(bad_check == True)
+            grasp_pc = np.delete(grasp_pc, bad_ind[0], axis=0)
+            grasp_pc_norm = np.delete(grasp_pc_norm, bad_ind[0], axis=0)
+        assert(np.sum(grasp_pc_norm != grasp_pc_norm) == 0)
+        m_width_of_pic = self.project_size
+        margin = self.projection_margin
+        order = np.array([0, 1, 2])
+        occupy_pic1, norm_pic1 = self.cal_projection(grasp_pc, m_width_of_pic, margin, grasp_pc_norm,
+                                                     order, gripper_width)
+        if self.project_chann == 3:
+            output = norm_pic1
+        elif self.project_chann == 12:
+            order = np.array([1, 2, 0])
+            occupy_pic2, norm_pic2 = self.cal_projection(grasp_pc, m_width_of_pic, margin, grasp_pc_norm,
+                                                         order, gripper_width)
+            order = np.array([0, 2, 1])
+            occupy_pic3, norm_pic3 = self.cal_projection(grasp_pc, m_width_of_pic, margin, grasp_pc_norm,
+                                                     order, gripper_width)
+            output = np.dstack([occupy_pic1, norm_pic1, occupy_pic2, norm_pic2, occupy_pic3, norm_pic3])
+        else:
+            raise NotImplementedError
+
+        return output
+
+    def collect_pc(self, pc, pose):
+        width = self.config['gripper_width']
+        matrix = pose[:3,:3] # 3x3
+        approach = matrix[:,0] # (3,)
+        bottom = pose[:3, 3] # (3,) need conversion
+        center = bottom + self.config['hand_height'] * approach # compute center between gripper tips
+        center = center.reshape(1,3)
+        #pc_t = (np.dot(matrix, (pc-center).T)).T
+        pc_t = (np.dot(matrix.T, (pc-center).T)).T
+
+        x_limit = width/4
+        z_limit = width/4
+        y_limit = width/2
+
+        x1 = pc_t[:, 0] > -x_limit
+        x2 = pc_t[:, 0] < x_limit
+        y1 = pc_t[:, 1] > -y_limit
+        y2 = pc_t[:, 1] < y_limit
+        z1 = pc_t[:, 2] > -z_limit
+        z2 = pc_t[:, 2] < z_limit
+
+        a = np.vstack([x1, x2, y1, y2, z1, z2]) # (6, N)
+        in_ind = np.where(np.sum(a, axis=0) == len(a))[0]
+
+        if len(in_ind) < self.minimum_point_amount:
+            return None
+        if self.projection:
+            return self.project_pc(pc_t, width, in_ind)
+        else:
+            pc_t = pc_t[in_ind]
+            if len(pc_t) < self.grasp_points_num:
+                new_pt = pc_t[np.random.choice(len(pc_t), self.grasp_points_num-len(pc_t), replace=True)]
+                pc_t = np.append(pc_t, new_pt, axis=0)
+            elif len(pc_t) > self.grasp_points_num:
+                pc_t = pc_t[np.random.choice(len(pc_t), self.grasp_points_num, replace=False)]
+            return pc_t.T # (3, N)
+
+    def __len__(self):
+        return len(self.labels) # each entry in list: (obj, pose, logit)
+    def __getitem__(self, idx):
+        # All label and point cloud pairs are registrated
+        # No transformation needed
+        config = self.config
+        obj, pose, label = self.labels[idx]
+        cloud_list = self.obj2pcs[obj]
+        n_view = min(config['max_view'], len(cloud_list))
+        retries = 0
+        while True:
+            vertices = np.vstack([np.load(path) for path in np.random.choice(cloud_list, n_view, replace=False)])
+            if len(vertices.shape)==2 and vertices.shape[0]>=self.minimum_point_amount and vertices.shape[1]==3:
+                break
+            retries += 1
+            if retries==10:
+                raise RuntimeError("The point clouds of %s seems to be empty or broken?!\n"%obj)
+
+        grasp_pc = self.collect_pc(vertices, pose)
+        return grasp_pc, label
 
 
 if __name__ == '__main__':

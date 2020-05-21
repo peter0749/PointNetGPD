@@ -9,19 +9,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+import json
 from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import StepLR
 
-from model.dataset import PointGraspDataset
+from model.dataset import GraspCustomLabelDataset
 from model.pointnet import PointNetCls, DualPointNetCls
 
 parser = argparse.ArgumentParser(description='pointnetGPD')
+parser.add_argument('--config', type=str, default='configuration file of the method to be compared')
 parser.add_argument('--tag', type=str, default='default')
 parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--mode', choices=['train', 'test'], required=True)
 parser.add_argument('--batch-size', type=int, default=1)
 parser.add_argument('--cuda', action='store_true')
-parser.add_argument('--gpu', type=int, default=0)
 parser.add_argument('--lr', type=float, default=0.005)
 parser.add_argument('--load-model', type=str, default='')
 parser.add_argument('--load-epoch', type=int, default=-1)
@@ -45,49 +46,26 @@ def worker_init_fn(pid):
     np.random.seed(torch.initial_seed() % (2**31-1))
 
 def my_collate(batch):
-    batch = list(filter(lambda x:x is not None, batch))
+    batch = list(filter(lambda x:x is not None and x[0] is not None, batch))
     return torch.utils.data.dataloader.default_collate(batch)
 
 grasp_points_num=1000
-obj_points_num=50000
-pc_file_used_num=20
-thresh_good=0.6
-thresh_bad=0.6
 point_channel=3
 
-train_loader = torch.utils.data.DataLoader(
-    PointGraspDataset(
-        obj_points_num=obj_points_num,
-        grasp_points_num=grasp_points_num,
-        pc_file_used_num=pc_file_used_num,
-        path=args.data_path,
-        tag='train',
-        grasp_amount_per_file=6500,
-        thresh_good=thresh_good,
-        thresh_bad=thresh_bad,
-    ),
-    batch_size=args.batch_size,
-    num_workers=32,
-    pin_memory=True,
-    shuffle=True,
-    worker_init_fn=worker_init_fn,
-    collate_fn=my_collate,
-)
+with open(args.config, 'r') as fp:
+    config = json.load(fp)
 
-test_loader = torch.utils.data.DataLoader(
-    PointGraspDataset(
-        obj_points_num=obj_points_num,
+dataset = GraspCustomLabelDataset(
+        config,
         grasp_points_num=grasp_points_num,
-        pc_file_used_num=pc_file_used_num,
-        path=args.data_path,
-        tag='test',
-        grasp_amount_per_file=500,
-        thresh_good=thresh_good,
-        thresh_bad=thresh_bad,
-        with_obj=True,
-    ),
+        projection=False,
+)
+dataset.train()
+
+dataloader = torch.utils.data.DataLoader(
+    dataset,
     batch_size=args.batch_size,
-    num_workers=32,
+    num_workers=16,
     pin_memory=True,
     shuffle=True,
     worker_init_fn=worker_init_fn,
@@ -100,30 +78,25 @@ if args.load_model and args.load_epoch != -1:
 
 if is_resume or args.mode == 'test':
     model = torch.load(args.load_model, map_location='cuda:{}'.format(args.gpu))
-    model.device_ids = [args.gpu]
     print('load model {}'.format(args.load_model))
 else:
     model = PointNetCls(num_points=grasp_points_num, input_chann=point_channel, k=2)
 if args.cuda:
-    if args.gpu != -1:
-        torch.cuda.set_device(args.gpu)
-        model = model.cuda()
-    else:
-        device_id = [0,1,2,3]
-        torch.cuda.set_device(device_id[0])
-        model = nn.DataParallel(model, device_ids=device_id).cuda()
+    model = model.cuda()
+    #model = nn.DataParallel(model)
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 scheduler = StepLR(optimizer, step_size=30, gamma=0.5)
 
-def train(model, loader, epoch):
+def train(model, dataset, loader, epoch):
     scheduler.step()
+    dataset.train()
     model.train()
     torch.set_grad_enabled(True)
     correct = 0
     dataset_size = 0
     for batch_idx, (data, target) in enumerate(loader):
         dataset_size += data.shape[0]
-        data, target = data.float(), target.long().squeeze()
+        data, target = data.float(), target.long() #.squeeze() # Why would you do that?
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         optimizer.zero_grad()
@@ -142,8 +115,9 @@ def train(model, loader, epoch):
     return float(correct)/float(dataset_size)
 
 
-def test(model, loader):
+def test(model, dataset, loader):
     model.eval()
+    dataset.eval()
     torch.set_grad_enabled(False)
     test_loss = 0
     correct = 0
@@ -153,7 +127,7 @@ def test(model, loader):
     res = []
     for data, target, obj_name in loader:
         dataset_size += data.shape[0]
-        data, target = data.float(), target.long().squeeze()
+        data, target = data.float(), target.long() #.squeeze()
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         output, _ = model(data) # N*C
@@ -171,9 +145,9 @@ def test(model, loader):
 def main():
     if args.mode == 'train':
         for epoch in range(is_resume*args.load_epoch, args.epoch):
-            acc_train = train(model, train_loader, epoch)
+            acc_train = train(model, dataset, dataloader, epoch)
             print('Train done, acc={}'.format(acc_train))
-            acc, loss = test(model, test_loader)
+            acc, loss = test(model, dataset, dataloader)
             print('Test done, acc={}, loss={}'.format(acc, loss))
             logger.add_scalar('train_acc', acc_train, epoch)
             logger.add_scalar('test_acc', acc, epoch)

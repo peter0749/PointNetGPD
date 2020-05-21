@@ -12,7 +12,7 @@ class STN3d(nn.Module):
         self.conv1 = torch.nn.Conv1d(input_chann, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
         self.conv3 = torch.nn.Conv1d(128, 1024, 1)
-        self.mp1 = torch.nn.MaxPool1d(num_points)
+        #self.mp1 = torch.nn.MaxPool1d(num_points) # HARD CODE #POINTS HERE?!?!?! ~.~ orz... Please. Don't do this...
         self.fc1 = nn.Linear(1024, 512)
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, 9)
@@ -23,24 +23,23 @@ class STN3d(nn.Module):
         self.bn3 = nn.BatchNorm1d(1024)
         self.bn4 = nn.BatchNorm1d(512)
         self.bn5 = nn.BatchNorm1d(256)
+        self.iden_data = torch.FloatTensor([[1,0,0,0,1,0,0,0,1]])
+        self.register_buffer('iden_constant', self.iden_data)
 
 
     def forward(self, x):
-        batchsize = x.size()[0]
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = self.mp1(x)
-        x = x.view(-1, 1024)
+        x = F.relu(self.bn1(self.conv1(x))) # (B, input_chann, N) -> (B, 64, N)
+        x = F.relu(self.bn2(self.conv2(x))) # (B, 64, N) -> (B, 128, N)
+        x = F.relu(self.bn3(self.conv3(x))) # (B, 128, N) -> (B, 1024, N)
+        #x = self.mp1(x) # (B, 1, 1024)
+        #x = x.view(-1, 1024) # (B, 1024)
+        x = torch.max(x, 2)[0] # (B, 1024)
 
         x = F.relu(self.bn4(self.fc1(x)))
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
 
-        iden = Variable(torch.from_numpy(np.array([1,0,0,0,1,0,0,0,1]).astype(np.float32))).view(1,9).repeat(batchsize,1)
-        if x.is_cuda:
-            iden = iden.cuda()
-        x = x + iden
+        x = x + Variable(self.iden_constant)
         x = x.view(-1, 3, 3)
         return x
 
@@ -52,7 +51,7 @@ class SimpleSTN3d(nn.Module):
         self.conv1 = torch.nn.Conv1d(input_chann, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
         self.conv3 = torch.nn.Conv1d(128, 256, 1)
-        self.mp1 = torch.nn.MaxPool1d(num_points)
+        #self.mp1 = torch.nn.MaxPool1d(num_points)
         self.fc1 = nn.Linear(256, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, 9)
@@ -63,24 +62,23 @@ class SimpleSTN3d(nn.Module):
         self.bn3 = nn.BatchNorm1d(256)
         self.bn4 = nn.BatchNorm1d(128)
         self.bn5 = nn.BatchNorm1d(64)
+        self.iden_data = torch.FloatTensor([[1,0,0,0,1,0,0,0,1]])
+        self.register_buffer('iden_constant', self.iden_data)
 
 
     def forward(self, x):
-        batchsize = x.size()[0]
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
-        x = self.mp1(x)
-        x = x.view(-1, 256)
+        #x = self.mp1(x)
+        #x = x.view(-1, 256)
+        x = torch.max(x, 2)[0] # (B, 256)
 
         x = F.relu(self.bn4(self.fc1(x)))
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
 
-        iden = Variable(torch.from_numpy(np.array([1,0,0,0,1,0,0,0,1]).astype(np.float32))).view(1,9).repeat(batchsize,1)
-        if x.is_cuda:
-            iden = iden.cuda()
-        x = x + iden
+        x = x + Variable(self.iden_constant)
         x = x.view(-1, 3, 3)
         return x
 
@@ -96,11 +94,10 @@ class DualPointNetfeat(nn.Module):
         self.bn1 = nn.BatchNorm1d(64)
         self.bn2 = nn.BatchNorm1d(128)
         self.bn3 = nn.BatchNorm1d(1024)
-        self.mp1 = torch.nn.MaxPool1d(num_points)
+        #self.mp1 = torch.nn.MaxPool1d(num_points)
         self.num_points = num_points
         self.global_feat = global_feat
     def forward(self, x):
-        batchsize = x.size()[0]
         trans1 = self.stn1(x[:, 0:3, :])
         trans2 = self.stn2(x[:, 3:6, :])
         x = x.transpose(2,1)
@@ -110,12 +107,13 @@ class DualPointNetfeat(nn.Module):
         pointfeat = x
         x = F.relu(self.bn2(self.conv2(x)))
         x = self.bn3(self.conv3(x))
-        x = self.mp1(x)
-        x = x.view(-1, 1024)
+        #x = self.mp1(x)
+        #x = x.view(-1, 1024)
+        x = torch.max(x, 2)[0] # (B, 1024)
         if self.global_feat:
             return x, trans1 + trans2
         else:
-            x = x.view(-1, 1024, 1).repeat(1, 1, self.num_points)
+            x = x.view(-1, 1024, 1).expand(1, 1, self.num_points)
             return torch.cat([x, pointfeat], 1), trans1 + trans2
 
 
@@ -129,26 +127,26 @@ class PointNetfeat(nn.Module):
         self.bn1 = nn.BatchNorm1d(64)
         self.bn2 = nn.BatchNorm1d(128)
         self.bn3 = nn.BatchNorm1d(1024)
-        self.mp1 = torch.nn.MaxPool1d(num_points)
+        #self.mp1 = torch.nn.MaxPool1d(num_points)
         self.num_points = num_points
         self.global_feat = global_feat
     def forward(self, x):
-        batchsize = x.size()[0]
         trans = self.stn(x)
         x = x.transpose(2,1)
         x = torch.bmm(x, trans)
-        # x = torch.cat([torch.bmm(x[..., 0:3], trans), torch.bmm(x[..., 3:6], trans)], dim=-1)
         x = x.transpose(2,1)
         x = F.relu(self.bn1(self.conv1(x)))
         pointfeat = x
         x = F.relu(self.bn2(self.conv2(x)))
         x = self.bn3(self.conv3(x))
-        x = self.mp1(x)
-        x = x.view(-1, 1024)
+        #x = self.mp1(x)
+        #x = x.view(-1, 1024)
+        x = torch.max(x, 2)[0] # (B, 1024)
+
         if self.global_feat:
             return x, trans
         else:
-            x = x.view(-1, 1024, 1).repeat(1, 1, self.num_points)
+            x = x.view(-1, 1024, 1).expand(1, 1, self.num_points)
             return torch.cat([x, pointfeat], 1), trans
 
 
@@ -204,7 +202,6 @@ class PointNetDenseCls(nn.Module):
         self.bn3 = nn.BatchNorm1d(128)
 
     def forward(self, x):
-        batchsize = x.size()[0]
         x, trans = self.feat(x)
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
@@ -212,7 +209,7 @@ class PointNetDenseCls(nn.Module):
         x = self.conv4(x)
         x = x.transpose(2,1).contiguous()
         x = F.log_softmax(x.view(-1,self.k), dim=-1)
-        x = x.view(batchsize, self.num_points, self.k)
+        x = x.view(-1, self.num_points, self.k)
         return x, trans
 
 
