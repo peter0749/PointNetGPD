@@ -1206,10 +1206,12 @@ class GraspCustomLabelDataset(torch.utils.data.Dataset):
     def train(self):
         self.object_set = self.object_set_train
         self.labels = self.labels_train
+        self.mode = 'train'
 
     def eval(self):
         self.object_set = self.object_set_val
         self.labels = self.labels_val
+        self.mode = 'eval'
 
     def cal_projection(self, point_cloud_voxel, m_width_of_pic, margin, surface_normal, order, gripper_width):
         occupy_pic = np.zeros([m_width_of_pic, m_width_of_pic, 1])
@@ -1368,7 +1370,10 @@ class GraspCustomLabelDataset(torch.utils.data.Dataset):
                 raise RuntimeError("The point clouds of %s seems to be empty or broken?!\n"%obj)
 
         grasp_pc = self.collect_pc(vertices, pose)
-        return grasp_pc, label
+        if self.mode=='train':
+            return grasp_pc, label
+        else:
+            return grasp_pc, label, obj
 
 
 if __name__ == '__main__':
