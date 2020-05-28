@@ -102,7 +102,7 @@ def train(model, dataset, loader, epoch):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         optimizer.zero_grad()
-        output, _ = model(data)
+        output = model(data)
         loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
@@ -132,7 +132,7 @@ def test(model, dataset, loader):
         data, target = data.float(), target.long() #.squeeze()
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        output, _ = model(data) # N*C
+        output = model(data) # N*C
         test_loss += F.nll_loss(output, target, size_average=False).cpu().item()
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.view_as(pred)).long().cpu().sum()
