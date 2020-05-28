@@ -76,14 +76,13 @@ is_resume = 0
 if args.load_model and args.load_epoch != -1:
     is_resume = 1
 
+model = PointNetCls(num_points=grasp_points_num, input_chann=point_channel, k=2)
 if is_resume or args.mode == 'test':
-    model = torch.load(args.load_model, map_location='cuda:{}'.format(args.gpu))
-    print('load model {}'.format(args.load_model))
-else:
-    model = PointNetCls(num_points=grasp_points_num, input_chann=point_channel, k=2)
+    model.load_state_dict(torch.load(args.load_model))
+    print('load weights {}'.format(args.load_model))
 if args.cuda:
-    model = model.cuda()
-    #model = nn.DataParallel(model)
+    base_model = model.cuda()
+    model = nn.DataParallel(base_model)
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 scheduler = StepLR(optimizer, step_size=30, gamma=0.5)
 
@@ -154,8 +153,8 @@ def main():
             logger.add_scalar('test_loss', loss, epoch)
             if epoch % args.save_interval == 0:
                 path = os.path.join(args.model_path, args.tag + '_{}.model'.format(epoch))
-                torch.save(model, path)
-                print('Save model @ {}'.format(path))
+                torch.save(base_model.state_dict(), path)
+                print('Save weights @ {}'.format(path))
     else:
         print('testing...')
         acc, loss = test(model, test_loader)

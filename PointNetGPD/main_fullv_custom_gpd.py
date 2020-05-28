@@ -14,7 +14,7 @@ from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import StepLR
 
 from model.dataset import GraspCustomLabelDataset
-from model.pointnet import PointNetCls, DualPointNetCls
+from model.gpd import GPDClassifier
 
 parser = argparse.ArgumentParser(description='pointnetGPD')
 parser.add_argument('--config', type=str, default='configuration file of the method to be compared')
