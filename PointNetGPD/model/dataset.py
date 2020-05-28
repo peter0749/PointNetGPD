@@ -1341,7 +1341,7 @@ class GraspCustomLabelDataset(torch.utils.data.Dataset):
         if len(in_ind) < self.minimum_point_amount:
             return None
         if self.projection:
-            return self.project_pc(pc_t, width, in_ind)
+            return np.transpose(self.project_pc(pc_t, width, in_ind), (2, 0, 1)) # (H, W, C) -> (C, H, W)
         else:
             pc_t = pc_t[in_ind]
             if len(pc_t) < self.grasp_points_num:
